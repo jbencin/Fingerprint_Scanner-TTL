@@ -6,7 +6,10 @@
 	TLDR; Wil Wheaton's Law
 */
 
-#include "FPS_GT511C3.h";
+#include <unistd.h>
+
+#include "FPS_GT511C3.h"
+#include "SerialDevice.h"
 
 #pragma region -= Command_Packet Definitions =-
 
@@ -84,21 +87,21 @@ Command_Packet::Command_Packet()
 
 #pragma region -= Response_Packet Definitions =-
 // creates and parses a response packet from the finger print scanner
-Response_Packet::Response_Packet(byte* buffer, bool UseSerialDebug)
+Response_Packet::Response_Packet(byte* buffer, bool debug)
 {
-	CheckParsing(buffer[0], COMMAND_START_CODE_1, COMMAND_START_CODE_1, "COMMAND_START_CODE_1", UseSerialDebug);
-	CheckParsing(buffer[1], COMMAND_START_CODE_2, COMMAND_START_CODE_2, "COMMAND_START_CODE_2", UseSerialDebug);
-	CheckParsing(buffer[2], COMMAND_DEVICE_ID_1, COMMAND_DEVICE_ID_1, "COMMAND_DEVICE_ID_1", UseSerialDebug);
-	CheckParsing(buffer[3], COMMAND_DEVICE_ID_2, COMMAND_DEVICE_ID_2, "COMMAND_DEVICE_ID_2", UseSerialDebug);
-	CheckParsing(buffer[8], 0x30, 0x31, "AckNak_LOW", UseSerialDebug);
+	CheckParsing(buffer[0], COMMAND_START_CODE_1, COMMAND_START_CODE_1, "COMMAND_START_CODE_1", debug);
+	CheckParsing(buffer[1], COMMAND_START_CODE_2, COMMAND_START_CODE_2, "COMMAND_START_CODE_2", debug);
+	CheckParsing(buffer[2], COMMAND_DEVICE_ID_1, COMMAND_DEVICE_ID_1, "COMMAND_DEVICE_ID_1", debug);
+	CheckParsing(buffer[3], COMMAND_DEVICE_ID_2, COMMAND_DEVICE_ID_2, "COMMAND_DEVICE_ID_2", debug);
+	CheckParsing(buffer[8], 0x30, 0x31, "AckNak_LOW", debug);
 	if (buffer[8] == 0x30) ACK = true; else ACK = false;
-	CheckParsing(buffer[9], 0x00, 0x00, "AckNak_HIGH", UseSerialDebug);
+	CheckParsing(buffer[9], 0x00, 0x00, "AckNak_HIGH", debug);
 
 	word checksum = CalculateChecksum(buffer, 10);
 	byte checksum_low = GetLowByte(checksum);
 	byte checksum_high = GetHighByte(checksum);
-	CheckParsing(buffer[10], checksum_low, checksum_low, "Checksum_LOW", UseSerialDebug);
-	CheckParsing(buffer[11], checksum_high, checksum_high, "Checksum_HIGH", UseSerialDebug);
+	CheckParsing(buffer[10], checksum_low, checksum_low, "Checksum_LOW", debug);
+	CheckParsing(buffer[11], checksum_high, checksum_high, "Checksum_HIGH", debug);
 	
 	Error = ErrorCodes::ParseFromBytes(buffer[5], buffer[4]);
 
@@ -184,21 +187,15 @@ byte Response_Packet::GetLowByte(word w)
 }
 
 // checks to see if the byte is the proper value, and logs it to the serial channel if not
-bool Response_Packet::CheckParsing(byte b, byte propervalue, byte alternatevalue, char* varname, bool UseSerialDebug)
+bool Response_Packet::CheckParsing(byte b, byte propervalue, byte alternatevalue, const char* varname, bool debug)
 {
 	bool retval = (b != propervalue) && (b != alternatevalue);
-	if ((UseSerialDebug) && (retval))
+	if ((debug) && (retval))
 	{
-		Serial.print("Response_Packet parsing error ");
-		Serial.print(varname);
-		Serial.print(" ");
-		Serial.print(propervalue, HEX);
-		Serial.print(" || ");
-		Serial.print(alternatevalue, HEX);
-		Serial.print(" != ");
-		Serial.println(b, HEX);
+		printf("Response_Packet parsing error %s 0x%X || 0x%X != 0x%X\n", varname, propervalue, alternatevalue, b);
+		return false;
 	}
-	
+	return true;
 }
 #pragma endregion
 
@@ -214,27 +211,31 @@ bool Response_Packet::CheckParsing(byte b, byte propervalue, byte alternatevalue
 
 #pragma region -= Constructor/Destructor =-
 // Creates a new object to interface with the fingerprint scanner
-FPS_GT511C3::FPS_GT511C3(uint8_t rx, uint8_t tx)
-	: _serial(rx,tx)
+FPS_GT511C3::FPS_GT511C3(const char* port)
+	: _serial(port)
 {
-	pin_RX = rx;
-	pin_TX = tx;
-	_serial.begin(9600);
-	this->UseSerialDebug = false;
-};
+}
 
 // destructor
 FPS_GT511C3::~FPS_GT511C3()
 {
-	_serial.~SoftwareSerial();
 }
 #pragma endregion
 
 #pragma region -= Device Commands =-
 //Initialises the device and gets ready for commands
-void FPS_GT511C3::Open()
+int FPS_GT511C3::Open()
 {
-	if (UseSerialDebug) Serial.println("FPS - Open");
+	if (myDebug) printf("FPS - Open\n");
+
+	// Open serial port if not already open
+	if (!_serial.isOpen()) {
+		int res = _serial.open(9600);
+		if (res < 0) {
+			return res;
+		}
+	}
+
 	Command_Packet* cp = new Command_Packet();
 	cp->Command = Command_Packet::Commands::Open;
 	cp->Parameter[0] = 0x00;
@@ -246,13 +247,15 @@ void FPS_GT511C3::Open()
 	Response_Packet* rp = GetResponse();
 	delete rp;
 	delete packetbytes;
+
+	return 0;
 }
 
 // According to the DataSheet, this does nothing... 
 // Implemented it for completeness.
 void FPS_GT511C3::Close()
 {
-	if (UseSerialDebug) Serial.println("FPS - Close");
+	if (myDebug) printf("FPS - Close\n");
 	Command_Packet* cp = new Command_Packet();
 	cp->Command = Command_Packet::Commands::Close;
 	cp->Parameter[0] = 0x00;
@@ -262,6 +265,9 @@ void FPS_GT511C3::Close()
 	byte* packetbytes = cp->GetPacketBytes();
 	SendCommand(packetbytes, 12);
 	Response_Packet* rp = GetResponse();
+
+	_serial.close();
+
 	delete rp;
 	delete packetbytes;
 };
@@ -275,12 +281,12 @@ bool FPS_GT511C3::SetLED(bool on)
 	cp->Command = Command_Packet::Commands::CmosLed;
 	if (on)
 	{
-		if (UseSerialDebug) Serial.println("FPS - LED on");
+		if (myDebug) printf("FPS - LED on\n");
 		cp->Parameter[0] = 0x01;
 	}
 	else
 	{
-		if (UseSerialDebug) Serial.println("FPS - LED off");
+		if (myDebug) printf("FPS - LED off\n");
 		cp->Parameter[0] = 0x00;
 	}
 	cp->Parameter[1] = 0x00;
@@ -306,7 +312,7 @@ bool FPS_GT511C3::ChangeBaudRate(int baud)
 	if ((baud == 9600) || (baud == 19200) || (baud == 38400) || (baud == 57600) || (baud == 115200))
 	{
 
-		if (UseSerialDebug) Serial.println("FPS - ChangeBaudRate");
+		if (myDebug) printf("FPS - ChangeBaudRate\n");
 		Command_Packet* cp = new Command_Packet();
 		cp->Command = Command_Packet::Commands::Open;
 		cp->ParameterFromInt(baud);
@@ -316,8 +322,8 @@ bool FPS_GT511C3::ChangeBaudRate(int baud)
 		bool retval = rp->ACK;
 		if (retval) 
 		{
-			_serial.end();
-			_serial.begin(baud);
+			_serial.close();
+			_serial.open(baud);
 		}
 		delete rp;
 		delete packetbytes;
@@ -330,7 +336,7 @@ bool FPS_GT511C3::ChangeBaudRate(int baud)
 // Return: The total number of enrolled fingerprints
 int FPS_GT511C3::GetEnrollCount()
 {
-	if (UseSerialDebug) Serial.println("FPS - GetEnrolledCount");
+	if (myDebug) printf("FPS - GetEnrolledCount\n");
 	Command_Packet* cp = new Command_Packet();
 	cp->Command = Command_Packet::Commands::GetEnrollCount;
 	cp->Parameter[0] = 0x00;
@@ -352,7 +358,7 @@ int FPS_GT511C3::GetEnrollCount()
 // Return: True if the ID number is enrolled, false if not
 bool FPS_GT511C3::CheckEnrolled(int id)
 {
-	if (UseSerialDebug) Serial.println("FPS - CheckEnrolled");
+	if (myDebug) printf("FPS - CheckEnrolled\n");
 	Command_Packet* cp = new Command_Packet();
 	cp->Command = Command_Packet::Commands::CheckEnrolled;
 	cp->ParameterFromInt(id);
@@ -376,7 +382,7 @@ bool FPS_GT511C3::CheckEnrolled(int id)
 //	3 - Position(ID) is already used
 int FPS_GT511C3::EnrollStart(int id)
 {
-	if (UseSerialDebug) Serial.println("FPS - EnrollStart");
+	if (myDebug) printf("FPS - EnrollStart\n");
 	Command_Packet* cp = new Command_Packet();
 	cp->Command = Command_Packet::Commands::EnrollStart;
 	cp->ParameterFromInt(id);
@@ -404,7 +410,7 @@ int FPS_GT511C3::EnrollStart(int id)
 //	3 - ID in use
 int FPS_GT511C3::Enroll1()
 {
-	if (UseSerialDebug) Serial.println("FPS - Enroll1");
+	if (myDebug) printf("FPS - Enroll1\n");
 	Command_Packet* cp = new Command_Packet();
 	cp->Command = Command_Packet::Commands::Enroll1;
 	byte* packetbytes = cp->GetPacketBytes();
@@ -431,7 +437,7 @@ int FPS_GT511C3::Enroll1()
 //	3 - ID in use
 int FPS_GT511C3::Enroll2()
 {
-	if (UseSerialDebug) Serial.println("FPS - Enroll2");
+	if (myDebug) printf("FPS - Enroll2\n");
 	Command_Packet* cp = new Command_Packet();
 	cp->Command = Command_Packet::Commands::Enroll2;
 	byte* packetbytes = cp->GetPacketBytes();
@@ -459,7 +465,7 @@ int FPS_GT511C3::Enroll2()
 //	3 - ID in use
 int FPS_GT511C3::Enroll3()
 {
-	if (UseSerialDebug) Serial.println("FPS - Enroll3");
+	if (myDebug) printf("FPS - Enroll3\n");
 	Command_Packet* cp = new Command_Packet();
 	cp->Command = Command_Packet::Commands::Enroll3;
 	byte* packetbytes = cp->GetPacketBytes();
@@ -482,7 +488,7 @@ int FPS_GT511C3::Enroll3()
 // Return: true if finger pressed, false if not
 bool FPS_GT511C3::IsPressFinger()
 {
-	if (UseSerialDebug) Serial.println("FPS - IsPressFinger");
+	if (myDebug) printf("FPS - IsPressFinger\n");
 	Command_Packet* cp = new Command_Packet();
 	cp->Command = Command_Packet::Commands::IsPressFinger;
 	byte* packetbytes = cp->GetPacketBytes();
@@ -505,7 +511,7 @@ bool FPS_GT511C3::IsPressFinger()
 // Returns: true if successful, false if position invalid
 bool FPS_GT511C3::DeleteID(int id)
 {
-	if (UseSerialDebug) Serial.println("FPS - DeleteID");
+	if (myDebug) printf("FPS - DeleteID\n");
 	Command_Packet* cp = new Command_Packet();
 	cp->Command = Command_Packet::Commands::DeleteID;
 	cp->ParameterFromInt(id);
@@ -523,7 +529,7 @@ bool FPS_GT511C3::DeleteID(int id)
 // Returns: true if successful, false if db is empty
 bool FPS_GT511C3::DeleteAll()
 {
-	if (UseSerialDebug) Serial.println("FPS - DeleteAll");
+	if (myDebug) printf("FPS - DeleteAll\n");
 	Command_Packet* cp = new Command_Packet();
 	cp->Command = Command_Packet::Commands::DeleteAll;
 	byte* packetbytes = cp->GetPacketBytes();
@@ -545,7 +551,7 @@ bool FPS_GT511C3::DeleteAll()
 //	3 - Verified FALSE (not the correct finger)
 int FPS_GT511C3::Verify1_1(int id)
 {
-	if (UseSerialDebug) Serial.println("FPS - Verify1_1");
+	if (myDebug) printf("FPS - Verify1_1\n");
 	Command_Packet* cp = new Command_Packet();
 	cp->Command = Command_Packet::Commands::Verify1_1;
 	cp->ParameterFromInt(id);
@@ -571,7 +577,7 @@ int FPS_GT511C3::Verify1_1(int id)
 //	200: Failed to find the fingerprint in the database
 int FPS_GT511C3::Identify1_N()
 {
-	if (UseSerialDebug) Serial.println("FPS - Identify1_N");
+	if (myDebug) printf("FPS - Identify1_N\n");
 	Command_Packet* cp = new Command_Packet();
 	cp->Command = Command_Packet::Commands::Identify1_N;
 	byte* packetbytes = cp->GetPacketBytes();
@@ -591,7 +597,7 @@ int FPS_GT511C3::Identify1_N()
 // Returns: True if ok, false if no finger pressed
 bool FPS_GT511C3::CaptureFinger(bool highquality)
 {
-	if (UseSerialDebug) Serial.println("FPS - CaptureFinger");
+	if (myDebug) printf("FPS - CaptureFinger\n");
 	Command_Packet* cp = new Command_Packet();
 	cp->Command = Command_Packet::Commands::CaptureFinger;
 	if (highquality)
@@ -710,11 +716,11 @@ bool FPS_GT511C3::CaptureFinger(bool highquality)
 void FPS_GT511C3::SendCommand(byte cmd[], int length)
 {
 	_serial.write(cmd, length);
-	if (UseSerialDebug)
+	if (myDebug)
 	{
-		Serial.print("FPS - SEND: "); 
-		SendToSerial(cmd, length);
-		Serial.println();
+		printf("FPS - SEND: "); 
+		printHex(cmd, length);
+		printf("\n");
 	}
 };
 
@@ -732,45 +738,36 @@ Response_Packet* FPS_GT511C3::GetResponse()
 			done = true;
 		}
 	}
-	byte* resp = new byte[12];
+	byte resp[12];
 	resp[0] = firstbyte;
 	for (int i=1; i < 12; i++)
 	{
-		while (_serial.available() == false) delay(10);
+		while (_serial.available() == false) usleep(10);
 		resp[i]= (byte) _serial.read();
 	}
-	Response_Packet* rp = new Response_Packet(resp, UseSerialDebug);
-	delete resp;
-	if (UseSerialDebug) 
+	Response_Packet* rp = new Response_Packet(resp, myDebug);
+	if (myDebug) 
 	{
-		Serial.print("FPS - RECV: ");
-		SendToSerial(rp->RawBytes, 12);
-		Serial.println();
-		Serial.println();
+		printf("FPS - RECV: ");
+		printHex(rp->RawBytes, 12);
+		printf("\n\n");
 	}
 	return rp;
 };
 
 // sends the bye aray to the serial debugger in our hex format EX: "00 AF FF 10 00 13"
-void FPS_GT511C3::SendToSerial(byte data[], int length)
+void FPS_GT511C3::printHex(byte data[], int length)
 {
-  boolean first=true;
-  Serial.print("\"");
-  for(int i=0; i<length; i++)
-  {
-    if (first) first=false; else Serial.print(" ");
-    serialPrintHex(data[i]);
-  }
-  Serial.print("\"");
+	bool first = true;
+	printf("\"");
+	for(int i=0; i<length; i++)
+	{
+		if (first) first=false; else printf(" ");
+		printf("%.2X", data[i]); 
+	}
+	printf("\"");
 }
 
-// sends a byte to the serial debugger in the hex format we want EX "0F"
-void FPS_GT511C3::serialPrintHex(byte data)
-{
-  char tmp[16];
-  sprintf(tmp, "%.2X",data); 
-  Serial.print(tmp); 
-}
 #pragma endregion
 
 #pragma endregion

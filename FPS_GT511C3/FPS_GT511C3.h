@@ -9,8 +9,15 @@
 #ifndef FPS_GT511C3_h
 #define FPS_GT511C3_h
 
-#include "Arduino.h";
-#include "SoftwareSerial.h";
+#include <cstdint>
+
+#include "SerialDevice.h"
+
+typedef std::uint8_t   byte;
+typedef std::uint16_t  word;
+typedef std::uint32_t  dword;
+typedef std::uint64_t  qword;
+
 #pragma region -= Command_Packet =-
 /*
 	Command_Packet represents the 12 byte command that we send to the finger print scanner
@@ -114,7 +121,7 @@ class Response_Packet
 
 				static Errors_Enum ParseFromBytes(byte high, byte low);
 		};
-		Response_Packet(byte* buffer, bool UseSerialDebug);
+		Response_Packet(byte* buffer, bool debug);
 		ErrorCodes::Errors_Enum Error;
 		byte RawBytes[12];
 		byte ParameterBytes[4];
@@ -127,7 +134,7 @@ class Response_Packet
 		int IntFromParameter();
 
 	private: 
-		bool CheckParsing(byte b, byte propervalue, byte alternatevalue, char* varname, bool UseSerialDebug);
+		bool CheckParsing(byte b, byte propervalue, byte alternatevalue, const char* varname, bool debug);
 		word CalculateChecksum(byte* buffer, int length);
 		byte GetHighByte(word w);						
 		byte GetLowByte(word w);
@@ -157,14 +164,18 @@ class Response_Packet
 */
 class FPS_GT511C3
 {
- 
- public:
+public:
+	enum {
+		MAX_ID = 200
+	};
+
 	// Enables verbose debug output using hardware Serial 
-	bool UseSerialDebug;
+	bool myDebug = false;
+	void SetDebug(bool b) { myDebug=b; }
 
 	#pragma region -= Constructor/Destructor =-
 	// Creates a new object to interface with the fingerprint scanner
-	FPS_GT511C3(uint8_t rx, uint8_t tx);
+	FPS_GT511C3(const char* port);
 	
 	// destructor
 	~FPS_GT511C3();
@@ -173,7 +184,7 @@ class FPS_GT511C3
 
 	#pragma region -= Device Commands =-
 	//Initialises the device and gets ready for commands
-	void Open();
+	int Open();
 
 	// Does not actually do anything (according to the datasheet)
 	// I implemented open, so had to do closed too... lol
@@ -323,8 +334,7 @@ class FPS_GT511C3
 
 	#pragma endregion
 
-	void serialPrintHex(byte data);
-	void SendToSerial(byte data[], int length);
+	void printHex(byte data[], int length);
 
 	// resets the Data_Packet class, and gets ready to download
 	// Not implemented due to memory restrictions on the arduino
@@ -339,10 +349,7 @@ class FPS_GT511C3
 private:
 	 void SendCommand(byte cmd[], int length);
 	 Response_Packet* GetResponse();
-	 uint8_t pin_RX,pin_TX;
-	 SoftwareSerial _serial;
+	 SerialDevice _serial;
 };
 
-
 #endif
-

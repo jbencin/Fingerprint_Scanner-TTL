@@ -1,0 +1,7 @@
+Building and Running
+===============================================================================
+NOTE: Your compiler must have C++11 support (gcc 4.8+ or clang 3.2+)
+
+  make
+  ./fpsdemo (as root)
+

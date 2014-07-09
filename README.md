@@ -8,9 +8,14 @@ This is a great fingerprint module from ADH-Tech that communicates over TTL Seri
 
 This repository contains example code to work with it. 
 
+About
+----
+This project is a Linux library and demo application (Examples/LinuxDemo) for the ADH GT-511C3 fingerprint scanner.
+It is based on Josh Hawley's Arduino library: https://github.com/sparkfun/Fingerprint_Scanner-TTL
+
 Repository Contents
 -------------------
-* **/FPS_GT511C3** - Arduino Library to interface with the sensor.
+* **/FPS_GT511C3** - Library to interface with the sensor.
 
 License Information
 -------------------
